@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web SSH Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/3.14.5/xterm.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/3.14.5/addons/fit/fit.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/3.14.5/xterm.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .connection-form {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .auth-method {
+            margin-top: 10px;
+        }
+        .auth-fields {
+            margin-top: 10px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            flex: 1;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button.disconnect {
+            background-color: #f44336;
+        }
+        button.disconnect:hover {
+            background-color: #d32f2f;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #terminal {
+            width: 100%;
+            height: 400px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            background-color: #111;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+            display: none;
+        }
+        .disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .error {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f2dede;
+            color: #a94442;
+            border-radius: 4px;
+            display: none;
+        }
+        .settings-panel {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #eee;
+        }
+        .settings-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+        }
+        .settings-content {
+            display: none;
+        }
+        .settings-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .setting-item {
+            flex: 1;
+            min-width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Web SSH Client</h1>
+        
+        <div class="connection-form">
+            <div class="form-group">
+                <label for="host">主机地址</label>
+                <input type="text" id="host" placeholder="例如: example.com 或 192.168.1.1">
+            </div>
+            <div class="form-group">
+                <label for="port">端口</label>
+                <input type="number" id="port" value="22">
+            </div>
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" placeholder="例如: root">
+            </div>
+        </div>
+
+        <div class="auth-method">
+            <label>认证方式:</label>
+            <div>
+                <input type="radio" id="auth-password" name="auth-method" value="password" checked>
+                <label for="auth-password">密码</label>
+                
+                <input type="radio" id="auth-key" name="auth-method" value="key">
+                <label for="auth-key">SSH 密钥</label>
+            </div>
+        </div>
+
+        <div id="password-fields" class="auth-fields">
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password">
+            </div>
+        </div>
+
+        <div id="key-fields" class="auth-fields" style="display: none;">
+            <div class="form-group">
+                <label for="private-key">私钥</label>
+                <textarea id="private-key" rows="4" style="width: 100%; resize: vertical;" placeholder="将您的私钥粘贴在此处..."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="key-passphrase">密钥口令 (如果有)</label>
+                <input type="password" id="key-passphrase">
+            </div>
+        </div>
+
+        <div class="settings-panel">
+            <div class="settings-title">
+                <span>高级设置</span>
+                <span class="toggle-icon">▼</span>
+            </div>
+            <div class="settings-content">
+                <div class="settings-row">
+                    <div class="setting-item">
+                        <label for="term-type">终端类型</label>
+                        <select id="term-type">
+                            <option value="xterm-256color">xterm-256color</option>
+                            <option value="xterm">xterm</option>
+                            <option value="vt100">vt100</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="font-size">字体大小</label>
+                        <input type="number" id="font-size" value="14" min="8" max="24">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="setting-item">
+                        <label for="keep-alive">保持连接 (秒)</label>
+                        <input type="number" id="keep-alive" value="60" min="0">
+                    </div>
+                    <div class="setting-item">
+                        <label for="timeout">连接超时 (秒)</label>
+                        <input type="number" id="timeout" value="10" min="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="button-group">
+            <button id="connect-btn">连接</button>
+            <button id="disconnect-btn" class="disconnect" disabled>断开连接</button>
+        </div>
+
+        <div class="status disconnected" id="status">
+            未连接
+        </div>
+
+        <div class="error" id="error-message"></div>
+
+        <div id="terminal"></div>
+    </div>
+
+    <script>
+        // 初始化终端
+        Terminal.applyAddon(fit);
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Consolas, "Courier New", monospace',
+            theme: {
+                background: '#111',
+                foreground: '#f8f8f8'
+            }
+        });
+        term.open(document.getElementById('terminal'));
+        term.fit();
+
+        // 当窗口大小改变时，调整终端大小
+        window.addEventListener('resize', () => {
+            term.fit();
+            if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+                const dimensions = {
+                    cols: term.cols,
+                    rows: term.rows
+                };
+                window.socket.send(JSON.stringify({
+                    type: 'resize',
+                    data: dimensions
+                }));
+            }
+        });
+
+        // 控制面板展开/折叠
+        document.querySelector('.settings-title').addEventListener('click', function() {
+            const content = document.querySelector('.settings-content');
+            const icon = document.querySelector('.toggle-icon');
+            
+            if (content.style.display === 'none' || content.style.display === '') {
+                content.style.display = 'block';
+                icon.textContent = '▲';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▼';
+            }
+        });
+
+        // 切换认证方式
+        document.querySelectorAll('input[name="auth-method"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (this.value === 'password') {
+                    document.getElementById('password-fields').style.display = 'block';
+                    document.getElementById('key-fields').style.display = 'none';
+                } else {
+                    document.getElementById('password-fields').style.display = 'none';
+                    document.getElementById('key-fields').style.display = 'block';
+                }
+            });
+        });
+
+        // 调整字体大小
+        document.getElementById('font-size').addEventListener('change', function() {
+            term.setOption('fontSize', parseInt(this.value, 10));
+            term.fit();
+        });
+
+        // 连接和断开连接按钮
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const status = document.getElementById('status');
+        const errorMessage = document.getElementById('error-message');
+
+        // 连接到SSH服务器 
+        // 注意: 实际实现需要后端支持，这里只是前端界面演示
+        connectBtn.addEventListener('click', function() {
+            // 获取连接参数
+            const host = document.getElementById('host').value;
+            const port = document.getElementById('port').value;
+            const username = document.getElementById('username').value;
+            const authMethod = document.querySelector('input[name="auth-method"]:checked').value;
+            const termType = document.getElementById('term-type').value;
+            
+            // 简单验证
+            if (!host || !username) {
+                showError('主机地址和用户名是必填项！');
+                return;
+            }
+
+            let authData = {};
+            if (authMethod === 'password') {
+                const password = document.getElementById('password').value;
+                if (!password) {
+                    showError('请输入密码！');
+                    return;
+                }
+                authData = { password };
+            } else {
+                const privateKey = document.getElementById('private-key').value;
+                const passphrase = document.getElementById('key-passphrase').value;
+                if (!privateKey) {
+                    showError('请输入SSH私钥！');
+                    return;
+                }
+                authData = { privateKey, passphrase };
+            }
+
+            // 显示连接状态
+            status.className = 'status';
+            status.textContent = '正在连接...';
+            errorMessage.style.display = 'none';
+            
+            // 禁用连接按钮，启用断开按钮
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+
+            // 清空终端
+            term.clear();
+
+            // 在这里，您需要实现与后端的WebSocket连接
+            // 例如:
+            try {
+                // 实际项目中，需要替换为您的后端WebSocket地址
+                const serverUrl = 'wss://your-backend-server.com/ssh';
+                
+                window.socket = new WebSocket(serverUrl);
+                
+                window.socket.onopen = function() {
+                    // 发送连接信息
+                    const connData = {
+                        type: 'connect',
+                        data: {
+                            host,
+                            port: parseInt(port, 10),
+                            username,
+                            authMethod,
+                            authData,
+                            termType,
+                            keepAlive: parseInt(document.getElementById('keep-alive').value, 10),
+                            timeout: parseInt(document.getElementById('timeout').value, 10)
+                        }
+                    };
+                    
+                    window.socket.send(JSON.stringify(connData));
+                    
+                    // 发送终端大小
+                    window.socket.send(JSON.stringify({
+                        type: 'resize',
+                        data: {
+                            cols: term.cols,
+                            rows: term.rows
+                        }
+                    }));
+                };
+                
+                window.socket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'data') {
+                        // 显示从服务器接收到的数据
+                        term.write(data.data);
+                    } else if (data.type === 'connected') {
+                        // 连接成功
+                        status.className = 'status connected';
+                        status.textContent = '已连接到 ' + host;
+                        status.style.display = 'block';
+                    } else if (data.type === 'error') {
+                        // 显示错误
+                        disconnectFromServer();
+                        showError(data.message || '连接失败');
+                    }
+                };
+                
+                window.socket.onclose = function() {
+                    disconnectFromServer();
+                };
+                
+                window.socket.onerror = function() {
+                    disconnectFromServer();
+                    showError('WebSocket连接错误');
+                };
+                
+                // 将终端输入发送到服务器
+                term.onData(function(data) {
+                    if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+                        window.socket.send(JSON.stringify({
+                            type: 'data',
+                            data: data
+                        }));
+                    }
+                });
+            } catch (err) {
+                disconnectFromServer();
+                showError('初始化WebSocket连接失败: ' + err.message);
+            }
+        });
+
+        // 断开连接
+        disconnectBtn.addEventListener('click', disconnectFromServer);
+
+        function disconnectFromServer() {
+            if (window.socket) {
+                window.socket.close();
+                window.socket = null;
+            }
+            
+            // 更新UI状态
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            status.className = 'status disconnected';
+            status.textContent = '未连接';
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            status.className = 'status disconnected';
+            status.textContent = '连接失败';
+        }
+    </script>
+</body>
+</html>
